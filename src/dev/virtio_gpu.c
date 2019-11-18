@@ -611,5 +611,63 @@ int virtio_gpu_init(struct virtio_pci_dev *dev)
     //   DEBUG("Next pointer of descriptor %d is %d\n", i, vq->desc[i].next);
     // }
    
+    struct virtio_pci_virtq *virtq = &dev->virtq[0];
+    struct virtq *vq = &virtq->vq;
+
+    struct virtio_gpu_ctrl_hdr request;
+    memset(&request, 0, sizeof(request));
+    request.type = VIRTIO_GPU_CMD_GET_DISPLAY_INFO;
+
+    struct virtio_gpu_resp_display_info response;
+
+    //fill hdr and buf for virtq descriptor
+    struct virtq_desc *hdr_desc = &vq->desc[0];
+
+    hdr_desc->addr = (uint64_t) &request;
+    hdr_desc->len = sizeof(request);
+    hdr_desc->flags = 0;
+    hdr_desc->next = 1;
+    hdr_desc->flags |= VIRTQ_DESC_F_NEXT;
+
+    struct virtq_desc *buf_desc = &vq->desc[1];
+
+    buf_desc->addr = (uint64_t) &response;
+    buf_desc->len = sizeof(response);
+    buf_desc->flags |= VIRTQ_DESC_F_WRITE;
+    buf_desc->next = 0;
+    //buf_desc->flags |= VIRTQ_DESC_F_NEXT;
+
+    //uint8_t usedidx = virtio_pci_atomic_load(&dev->common->queue_device);
+    //uint8_t usedidx = virtio_pci_atomic_load(&dev->common->queue_device);
+
+
+    le16 usedidx = virtq->vq.used->idx;
+    
+    DEBUG("Virtq used index: %d\n",  usedidx);
+    
+    DEBUG("vq->avail->idx: %d\n", vq->avail->idx);
+    DEBUG("vq->used->idx: %d\n", vq->used->idx);
+
+    vq->avail->ring[vq->avail->idx % vq->qsz] = 0;
+    mbarrier();
+    vq->avail->idx++;
+    mbarrier(); 
+
+    dev->common->queue_select = 0;
+    DEBUG("queue notify offset: %d\n", dev->common->queue_notify_off);
+
+
+    
+    virtio_pci_atomic_store(dev->notify_base_addr, 0xFFFFFFFFF);
+    DEBUG("request initiated");
+    do {
+      DEBUG("vq->avail->idx: %d\n", vq->avail->idx);
+      DEBUG("vq->used->idx: %d\n", vq->used->idx);
+
+      usedidx = virtio_pci_atomic_load(&virtq->vq.used->idx);
+    } while(!usedidx);
+
+    DEBUG("Virtq used index: %d\n", virtq->vq.used->idx);
+
     return 0;
 }
